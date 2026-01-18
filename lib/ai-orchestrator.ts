@@ -2,10 +2,15 @@ import Groq from "groq-sdk";
 import { AnalysisResultSchema, type AnalysisResult } from "@/lib/validation";
 import { z } from "zod";
 
-// Initialize Groq client
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
-});
+// Lazy-initialize Groq client to avoid build-time errors when GROQ_API_KEY is not set
+// (Vercel/build doesn't have env vars; they're only available at runtime)
+function getGroqClient() {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) {
+    throw new Error("GROQ_API_KEY environment variable is not set");
+  }
+  return new Groq({ apiKey });
+}
 
 // Model configuration - optimized for deterministic JSON output
 const MODEL = "llama-3.1-70b-versatile"; // Fast, capable, JSON-optimized
@@ -40,10 +45,7 @@ export async function analyzeResume(
   jobDescription: string,
   retryCount: number = 0
 ): Promise<AnalysisResult> {
-  if (!process.env.GROQ_API_KEY) {
-    throw new Error("GROQ_API_KEY environment variable is not set");
-  }
-
+  const groq = getGroqClient();
   const prompt = buildAnalysisPrompt(resumeText, jobDescription);
 
   try {
@@ -123,10 +125,7 @@ export async function* streamAnalysis(
   resumeText: string,
   jobDescription: string
 ): AsyncGenerator<Partial<AnalysisResult>, void, unknown> {
-  if (!process.env.GROQ_API_KEY) {
-    throw new Error("GROQ_API_KEY environment variable is not set");
-  }
-
+  const groq = getGroqClient();
   const prompt = buildAnalysisPrompt(resumeText, jobDescription);
 
   try {
