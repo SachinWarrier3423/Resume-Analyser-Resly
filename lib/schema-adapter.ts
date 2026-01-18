@@ -39,25 +39,35 @@ export function toLegacyFormat(result: AnalysisResult): LegacyAnalysisResult {
     })),
   ];
 
-  // Build improvements array from improvements strings
-  const improvements = result.improvements.map((improvement, index) => {
-    // Parse improvement string to extract category and priority
-    // This is a simplified parser - in production, you might want more structure
-    const isHighPriority = improvement.toLowerCase().includes("critical") || 
-                           improvement.toLowerCase().includes("important") ||
-                           index < 2; // First 2 are high priority
-    
+  // Improvements are now structured in the new schema, but we handle legacy strings for backward compatibility
+  const improvements = result.improvements.map((imp: any, index) => {
+    // Handle legacy string format
+    if (typeof imp === 'string') {
+      const isHighPriority = imp.toLowerCase().includes("critical") ||
+        imp.toLowerCase().includes("important") ||
+        index < 2;
+
+      return {
+        category: imp.toLowerCase().includes("skill") ? "skills" as const :
+          imp.toLowerCase().includes("keyword") ? "keywords" as const :
+            imp.toLowerCase().includes("format") ? "formatting" as const :
+              "experience" as const,
+        priority: isHighPriority ? "high" as const :
+          index < 4 ? "medium" as const :
+            "low" as const,
+        title: imp.substring(0, 50) || "Improvement",
+        description: imp,
+        actionable: imp,
+      };
+    }
+
+    // Handle new structured format
     return {
-      category: improvement.toLowerCase().includes("skill") ? "skills" as const :
-                improvement.toLowerCase().includes("keyword") ? "keywords" as const :
-                improvement.toLowerCase().includes("format") ? "formatting" as const :
-                "experience" as const,
-      priority: isHighPriority ? "high" as const : 
-                index < 4 ? "medium" as const : 
-                "low" as const,
-      title: improvement.substring(0, 50) || "Improvement",
-      description: improvement,
-      actionable: improvement,
+      category: imp.category,
+      priority: imp.priority,
+      title: imp.title,
+      description: imp.description,
+      actionable: imp.actionable,
     };
   });
 

@@ -15,7 +15,7 @@ function getGroqClient() {
 // Model configuration - optimized for deterministic JSON output
 // Using llama-3.3-70b-versatile as llama-3.1-70b-versatile is decommissioned
 const MODEL = "llama-3.3-70b-versatile"; // Fast, capable, JSON-optimized
-const MAX_TOKENS = 2000; // Reduced for faster, more focused responses
+const MAX_TOKENS = 3000; // Increased for detailed, high-quality responses
 const TEMPERATURE = 0.1; // Very low temperature for deterministic outputs
 const MAX_RETRIES = 3; // Maximum retries for malformed JSON
 
@@ -23,19 +23,49 @@ const MAX_RETRIES = 3; // Maximum retries for malformed JSON
  * Deterministic system prompt enforcing strict JSON-only output
  * No markdown, no explanations, just structured data
  */
-const SYSTEM_PROMPT = `You are a resume analysis inference engine. Your only job is to output valid JSON.
+const SYSTEM_PROMPT = `You are a production-grade AI resume analyzer and senior career consultant.
+Your task is to analyze the resume against the job description and output a professional, high-quality analysis in strict JSON format.
 
-CRITICAL RULES:
-1. Output ONLY valid JSON. No markdown, no explanations, no code blocks.
-2. Use EXACTLY these keys: match_score, missing_skills, ats_score, keyword_analysis, resume_strengths, improvements, role_fit_summary
-3. All scores are integers 0-100
-4. All arrays are arrays of strings (except keyword_analysis which has present/missing arrays)
-5. role_fit_summary is a single string, 50-500 characters
-6. Be conservative and realistic in scoring
-7. Missing skills should be specific and actionable
-8. Improvements should be concrete and prioritized
+STRICT STRUCTURAL RULES:
+1. Output ONLY valid JSON. No markdown, no explanations.
+2. Follow the JSON schema exactly. Do not add new top-level keys.
+3. All scores (match_score, ats_score) must be integers 0-100.
+4. "improvements" must be an array of objects with keys: title, description, actionable, priority, category.
 
-Your response must be parseable as JSON with no preprocessing.`;
+QUALITY & CONTENT RULES:
+- Adopt the persona of a senior hiring consultant: professional, calm, confident, and specific.
+- Avoid vague advice, filler text, or generic buzzwords.
+- Explanations must answer: What is the issue? Why does it matter? How does it affect hiring?
+
+SECTION GUIDELINES:
+
+1. MATCH & ATS SCORES:
+   - Be conservative. High scores (80+) require strong evidence.
+   - Align text insights with the numeric scores.
+
+2. MISSING SKILLS:
+   - List specific, relevant hard/soft skills missing from the resume but required by the job.
+
+3. KEYWORD ANALYSIS:
+   - Identify critical ATS keywords from the job description.
+
+4. RESUME STRENGTHS:
+   - Highlight 3-5 distinct strengths. Quote specific metrics or achievements where possible.
+
+5. IMPROVEMENT ROADMAP (CRITICAL):
+   - Provide concrete, prioritized recommendations.
+   - For each improvement:
+     * title: Short and punchy.
+     * description: 3-5 sentences explaining the gap and its impact on hiring chances. Explain WHY it matters.
+     * actionable: A specific, realistic step to fix it (e.g., "Add a 'Technical Skills' section..."). Do NOT repeat the description.
+     * priority: "high" | "medium" | "low".
+     * category: "skills" | "experience" | "keywords" | "formatting".
+   - Avoid generic advice like "gain more experience". Focus on actionable resume changes.
+
+6. ROLE FIT SUMMARY:
+   - Write 4-6 sentences assessing overall fit.
+   - Mention key strengths and critical gaps.
+   - Professional, objective tone. No guarantees.`;
 
 /**
  * Analyze resume against job description using Groq AI
@@ -161,7 +191,7 @@ export async function* streamAnalysis(
         try {
           const cleaned = cleanJsonContent(accumulatedContent);
           const partial = JSON.parse(cleaned);
-          
+
           // Only yield if we have new meaningful data
           if (hasNewData(partial, lastValidPartial)) {
             lastValidPartial = partial as Partial<AnalysisResult>;
@@ -233,7 +263,15 @@ Output JSON with this exact structure:
     "missing": ["keyword3", "keyword4"]
   },
   "resume_strengths": ["strength1", "strength2"],
-  "improvements": ["improvement1", "improvement2"],
+  "improvements": [
+    {
+      "title": "improvement title",
+      "description": "detailed description",
+      "actionable": "specific action step",
+      "priority": "high|medium|low",
+      "category": "skills|experience|keywords|formatting"
+    }
+  ],
   "role_fit_summary": "<50-500 character summary>"
 }
 
@@ -243,7 +281,12 @@ Guidelines:
 - ats_score: ATS compatibility (0-100). Consider formatting, keywords, structure.
 - keyword_analysis: Extract important keywords from job description. Categorize as present/missing.
 - resume_strengths: What makes this resume strong for this role.
-- improvements: Prioritized, actionable improvements. Be concrete.
+- improvements: Array of objects.
+   - title: Short, punchy title (max 50 chars).
+   - description: Explain WHY this improvement matters (context).
+   - actionable: Concrete step to take (e.g. "Add 'React' to Skills section").
+   - priority: high/medium/low based on impact.
+   - category: skills/experience/keywords/formatting.
 - role_fit_summary: Concise assessment of fit. Professional tone.`;
 }
 
@@ -253,23 +296,23 @@ Guidelines:
 function cleanJsonContent(content: string): string {
   // Remove markdown code blocks
   let cleaned = content.trim();
-  
+
   // Remove ```json or ``` markers
   cleaned = cleaned.replace(/^```json\s*/i, "");
   cleaned = cleaned.replace(/^```\s*/, "");
   cleaned = cleaned.replace(/\s*```$/, "");
-  
+
   // Remove any leading/trailing whitespace
   cleaned = cleaned.trim();
-  
+
   // Find JSON object boundaries
   const firstBrace = cleaned.indexOf("{");
   const lastBrace = cleaned.lastIndexOf("}");
-  
+
   if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
     cleaned = cleaned.substring(firstBrace, lastBrace + 1);
   }
-  
+
   return cleaned;
 }
 
@@ -279,36 +322,36 @@ function cleanJsonContent(content: string): string {
  */
 function extractPartialJson(content: string): Partial<AnalysisResult> | null {
   const partial: Partial<AnalysisResult> = {};
-  
+
   // Try to extract numeric values
   const matchScoreMatch = content.match(/"match_score"\s*:\s*(\d+)/);
   if (matchScoreMatch) {
     partial.match_score = parseInt(matchScoreMatch[1], 10);
   }
-  
+
   const atsScoreMatch = content.match(/"ats_score"\s*:\s*(\d+)/);
   if (atsScoreMatch) {
     partial.ats_score = parseInt(atsScoreMatch[1], 10);
   }
-  
+
   // Try to extract arrays (simplified - just check if they exist)
   if (content.includes('"missing_skills"')) {
     partial.missing_skills = [];
   }
-  
+
   if (content.includes('"resume_strengths"')) {
     partial.resume_strengths = [];
   }
-  
+
   if (content.includes('"improvements"')) {
     partial.improvements = [];
   }
-  
+
   // Only return if we have at least one meaningful value
   if (Object.keys(partial).length > 0) {
     return partial;
   }
-  
+
   return null;
 }
 
@@ -320,7 +363,7 @@ function hasNewData(
   lastPartial: Partial<AnalysisResult> | null
 ): boolean {
   if (!lastPartial) return true;
-  
+
   // Check if scores changed
   if (
     (newPartial.match_score !== undefined &&
@@ -330,19 +373,19 @@ function hasNewData(
   ) {
     return true;
   }
-  
+
   // Check if arrays have more items
   if (
     (newPartial.missing_skills?.length || 0) >
-      (lastPartial.missing_skills?.length || 0) ||
+    (lastPartial.missing_skills?.length || 0) ||
     (newPartial.resume_strengths?.length || 0) >
-      (lastPartial.resume_strengths?.length || 0) ||
+    (lastPartial.resume_strengths?.length || 0) ||
     (newPartial.improvements?.length || 0) >
-      (lastPartial.improvements?.length || 0)
+    (lastPartial.improvements?.length || 0)
   ) {
     return true;
   }
-  
+
   // Check if summary exists and is different
   if (
     newPartial.role_fit_summary &&
@@ -350,7 +393,7 @@ function hasNewData(
   ) {
     return true;
   }
-  
+
   return false;
 }
 

@@ -103,22 +103,26 @@ export async function POST(request: NextRequest) {
             let finalResult: any = null;
             for await (const partialResult of streamAnalysis(resumeText, jobDescription)) {
               finalResult = partialResult;
-              
+
               // Send partial results as-is (frontend can handle partial updates)
-              // Final complete result will be converted below
               controller.enqueue(
                 encoder.encode(`data: ${JSON.stringify({ status: "progress", data: partialResult })}\n\n`)
               );
+            }
+
+            // Persist functionality in streaming flow
+            if (finalResult && userId) {
+              await persistAnalysis(userId, resumeText, jobDescription, finalResult);
             }
 
             // Send final complete result (convert to legacy format for frontend)
             if (finalResult) {
               try {
                 // Validate it's a complete result before converting
-                if (finalResult.match_score !== undefined && 
-                    finalResult.ats_score !== undefined &&
-                    finalResult.missing_skills !== undefined &&
-                    finalResult.keyword_analysis !== undefined) {
+                if (finalResult.match_score !== undefined &&
+                  finalResult.ats_score !== undefined &&
+                  finalResult.missing_skills !== undefined &&
+                  finalResult.keyword_analysis !== undefined) {
                   const legacyResult = toLegacyFormat(finalResult);
                   controller.enqueue(
                     encoder.encode(`data: ${JSON.stringify({ status: "complete", data: legacyResult })}\n\n`)
@@ -164,56 +168,17 @@ export async function POST(request: NextRequest) {
         userId,
         async () => {
           const analysis = await analyzeResume(resumeText, jobDescription);
-          
+
           // Validate schema robustness
           const validation = validateSchemaRobustness(analysis);
           if (!validation.valid) {
             console.warn("Schema validation issues:", validation.issues);
             // Continue anyway - log but don't fail
           }
-          
+
           // Save to database if user is authenticated
           if (userId) {
-            const supabase = createServerClient();
-            
-            // Get or create user
-            let user = await supabase
-              .from("users")
-              .select("id")
-              .eq("id", userId)
-              .single();
-
-            if (!user.data) {
-              // Create user (in production, this would be handled by Supabase Auth)
-              // For now, we'll skip user creation and just log
-            }
-
-            // Save resume
-            const { data: resumeData, error: resumeError } = await supabase
-              .from("resumes")
-              .insert({
-                user_id: userId,
-                file_url: "", // In production, upload to Supabase Storage first
-                parsed_text: resumeText,
-                file_name: "resume.pdf",
-                file_size_bytes: resumeText.length,
-              } as any) // Type assertion needed due to strict Supabase types
-              .select()
-              .single();
-
-            if (resumeError) {
-              console.error("Failed to save resume:", resumeError);
-              // Continue without saving - don't fail the request
-            } else if (resumeData && (resumeData as any).id) {
-              // Save analysis (using new schema format)
-              await supabase.from("analyses").insert({
-                resume_id: (resumeData as any).id,
-                job_description: jobDescription,
-                result_json: analysis,
-                match_score: analysis.match_score,
-                ats_score: analysis.ats_score,
-              } as any); // Type assertion needed due to strict Supabase types
-            }
+            await persistAnalysis(userId, resumeText, jobDescription, analysis);
           }
 
           // Convert to legacy format for frontend compatibility
@@ -245,3 +210,71 @@ export async function POST(request: NextRequest) {
   }
 }
 
+/**
+ * Shared helper to persist analysis results to Supabase
+ * Ensures consistency between streaming and non-streaming flows
+ */
+async function persistAnalysis(
+  userId: string,
+  resumeText: string,
+  jobDescription: string,
+  analysisResult: any
+) {
+  const supabase = createServerClient();
+
+  // Check if user exists first to prevent foreign key constraint errors
+  const { data: user } = await supabase
+    .from("users")
+    .select("id")
+    .eq("id", userId)
+    .single();
+
+  // Fix: If user doesn't exist, create a placeholder record to ensure persistence handles
+  // anonymous or new users correctly without violating FK constraints.
+  if (!user) {
+    const { error: createUserError } = await supabase
+      .from("users")
+      .upsert({
+        id: userId,
+        email: `user_${userId}@placeholder.resly.app`, // Placeholder to satisfy schema
+      } as any)
+      .select()
+      .single();
+
+    if (createUserError) {
+      throw new Error(`CRITICAL: Could not create placeholder user ${userId}: ${createUserError.message}`);
+    }
+  }
+
+  // Save resume record
+  const { data: resumeData, error: resumeError } = await supabase
+    .from("resumes")
+    .insert({
+      user_id: userId,
+      file_url: "", // Pending storage bucket implementation
+      parsed_text: resumeText,
+      file_name: "resume.pdf",
+      file_size_bytes: resumeText.length,
+    } as any)
+    .select()
+    .single();
+
+  if (resumeError) {
+    throw new Error(`CRITICAL: Failed to save resume record: ${resumeError.message}`);
+  }
+
+  if (resumeData && (resumeData as any).id) {
+    // Save analysis record
+    const { error: analysisError } = await supabase.from("analyses").insert({
+      resume_id: (resumeData as any).id,
+      job_description: jobDescription,
+      result_json: analysisResult,
+      match_score: analysisResult.match_score,
+      ats_score: analysisResult.ats_score,
+    } as any);
+
+    if (analysisError) {
+      throw new Error(`CRITICAL: Failed to save analysis record: ${analysisError.message}`);
+    }
+  }
+}

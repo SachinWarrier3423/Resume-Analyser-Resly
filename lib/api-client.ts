@@ -23,11 +23,15 @@ export interface AnalyzeError {
  */
 export async function analyzeResume(
   resumeFile: File,
-  jobDescription: string
+  jobDescription: string,
+  userId?: string
 ): Promise<AnalyzeResponse> {
   const formData = new FormData();
   formData.append("resume", resumeFile);
   formData.append("jobDescription", jobDescription);
+  if (userId) {
+    formData.append("userId", userId);
+  }
 
   const response = await fetch(`${API_BASE_URL}/analyze`, {
     method: "POST",
@@ -51,11 +55,15 @@ export async function analyzeResume(
  */
 export async function* analyzeResumeStream(
   resumeFile: File,
-  jobDescription: string
+  jobDescription: string,
+  userId?: string
 ): AsyncGenerator<Partial<AnalyzeResponse>, void, unknown> {
   const formData = new FormData();
   formData.append("resume", resumeFile);
   formData.append("jobDescription", jobDescription);
+  if (userId) {
+    formData.append("userId", userId);
+  }
 
   const response = await fetch(`${API_BASE_URL}/analyze?stream=true`, {
     method: "POST",

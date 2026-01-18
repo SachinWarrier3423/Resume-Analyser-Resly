@@ -24,7 +24,13 @@ export const AnalysisResultSchema = z.object({
     missing: z.array(z.string()).min(0),
   }),
   resume_strengths: z.array(z.string()).min(0),
-  improvements: z.array(z.string()).min(0),
+  improvements: z.array(z.object({
+    title: z.string(),
+    description: z.string(),
+    actionable: z.string(),
+    priority: z.enum(["high", "medium", "low"]),
+    category: z.enum(["skills", "experience", "keywords", "formatting"]),
+  })).min(0),
   role_fit_summary: z.string().min(50).max(500),
 });
 
