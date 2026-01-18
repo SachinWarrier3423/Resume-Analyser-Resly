@@ -88,6 +88,8 @@ function ProgressContent() {
       let stepIndex = 0;
 
       // Start streaming analysis
+      let finalResult: any = null;
+      
       for await (const partialResult of analyzeResumeStream(file, jobDescription)) {
         // Update progress based on received data
         if (partialResult.matchScore !== undefined) {
@@ -116,23 +118,28 @@ function ProgressContent() {
           }
         }
 
-        // Store result
+        // Store result in state for UI updates
         setAnalysisResult(partialResult);
+        // Also keep a local reference for navigation
+        finalResult = partialResult;
       }
 
       // Complete
       setProgress(100);
       setCurrentStep(4);
 
-      // Save result and navigate
-      if (analysisResult) {
+      // Save result and navigate using the final result from loop
+      if (finalResult && (finalResult.matchScore !== undefined || finalResult.match_score !== undefined)) {
         saveCurrentAnalysis({
-          ...analysisResult,
+          ...finalResult,
           jobDescription: jobDescRef.current,
         });
         setTimeout(() => {
           router.push("/results");
-        }, 500);
+        }, 1000);
+      } else {
+        // If we didn't get a valid result, show error
+        throw new Error("Analysis completed but no valid result received");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Analysis failed");

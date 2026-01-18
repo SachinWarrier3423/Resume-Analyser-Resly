@@ -13,7 +13,8 @@ function getGroqClient() {
 }
 
 // Model configuration - optimized for deterministic JSON output
-const MODEL = "llama-3.1-70b-versatile"; // Fast, capable, JSON-optimized
+// Using llama-3.3-70b-versatile as llama-3.1-70b-versatile is decommissioned
+const MODEL = "llama-3.3-70b-versatile"; // Fast, capable, JSON-optimized
 const MAX_TOKENS = 2000; // Reduced for faster, more focused responses
 const TEMPERATURE = 0.1; // Very low temperature for deterministic outputs
 const MAX_RETRIES = 3; // Maximum retries for malformed JSON
